@@ -24,6 +24,8 @@ async function  ConnectPkafka() {
 ConnectPkafka(); 
 let waitforCreateReqId :number;
 let waitforCloseReqId : number;
+let waitforBalanceId : number;
+let balance : number
 const consumer = kafka.consumer({groupId : 'group-3'}); 
 
 async function connectCkafka() {
@@ -44,6 +46,11 @@ async function connectCkafka() {
         if(data.state == 'closed'){ 
             waitforCloseReqId = data.reqId
         }
+        if(data.state == 'balance') { 
+            waitforBalanceId = data.id
+            balance = data.balance
+        }
+        console.log("balance " + balance)
         console.log('reqId =' + waitforCreateReqId)
       }  
       catch(err) { 
@@ -252,15 +259,38 @@ app.post('/api/v1/trade/close' , async (req , res)=> {
 })
 app.get('/api/v1/balance/usd' , async (req , res)=> { 
     try { 
+        const reqId = Math.trunc(Date.now() + Math.random() /6)
         await producer.send({ 
             topic : 'Q1' , 
             messages : [{ 
                 value : JSON.stringify({
-                    type : 'getBalance'
+                    type : 'getBalance' , data : { 
+                        reqId : reqId
+                    }
                 })
             }]
         })
-        res.json("ur data is $20000")
+        const myPromise = new Promise((resolve, reject) => {
+            const start = Date.now() 
+            function poll() { 
+                if(reqId == waitforBalanceId){ 
+                    let tt = Date.now() - start
+                    resolve("yasss" + tt + " balance " + balance )
+                }
+                else if((Date.now()-start) >5000){ 
+                    reject("didnt worked tle " )
+                }
+                else { 
+                    setTimeout(poll , 50)
+                }
+            }
+            poll()
+        })
+        myPromise.then((data) => { 
+            res.json(data)
+        }).catch((err)=> { 
+            res.status(403).json("didnt worked bhai")
+        })
     }
     catch(err) { 
 
@@ -269,16 +299,31 @@ app.get('/api/v1/balance/usd' , async (req , res)=> {
 })
 app.get('/api/v1/supportedAssets' , async (req , res)=> { 
     try { 
-        await producer.send({ 
-            topic : 'Q1' , 
-            messages : [{ 
-                value : JSON.stringify({
-                    type : 'supportedAssets'
-                })
-            }]
-        })
-        
-        res.json("ur data is $20000")
+        // await producer.send({ 
+        //     topic : 'Q1' , 
+        //     messages : [{ 
+        //         value : JSON.stringify({
+        //             type : 'supportedAssets'
+        //         })
+        //     }]
+        // })
+        const assets = [{
+		symbol: "BTC",
+		name: "Bitcoin",
+		imageUrl: "image.com/png"
+	    }, 
+        {
+		symbol: "ETH",
+		name: "Etherium",
+		imageUrl: "image.com/png"
+	    }, 
+        {
+		symbol: "SOl",
+		name: "Solana",
+		imageUrl: "image.com/png"
+	    }
+        ]
+        res.json(JSON.stringify(assets))
     }
     catch(err) { 
 
