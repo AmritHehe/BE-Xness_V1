@@ -23,6 +23,7 @@
     "express": "^5.1.0",
     "js-cookie": "^3.0.5",
     "jsonwebtoken": "^9.0.2",
+    "kafkajs": "^2.2.4",
     "nodemailer": "^7.0.6",
     "redis": "^5.8.2",
     "resend": "^6.0.2",
