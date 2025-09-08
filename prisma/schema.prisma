@@ -1,0 +1,49 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model user { 
+  SNo Int @id @default(autoincrement())
+  id String @unique
+  email String @unique
+  lastLoggedIn DateTime?
+  existingTrades existingTrades[]
+
+
+}
+model existingTrades { 
+  SNo Int @id @default(autoincrement())
+  id String
+  openPrice Float
+  closePrice Float
+  leverage Float
+  pnl Float
+  asset asset @relation(fields: [assetId] , references: [id])
+  assetId String
+  liquidated Boolean
+  user user@relation(fields: [userId] , references: [id])
+  userId String
+  CreatedAt DateTime
+}
+
+model asset { 
+  SNo Int @id @default(autoincrement())
+  id String @unique
+  symbol String
+  imageUrl String
+  name String
+  decimals Int
+  ExistingTrades existingTrades[]
+}
