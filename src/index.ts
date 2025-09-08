@@ -2,7 +2,7 @@ import express from 'express' ;
 import nodemailer from 'nodemailer'
 const app = express() ; 
 const users  :any = []
-import jwt from 'jsonwebtoken'
+import jwt, { type JwtPayload } from 'jsonwebtoken'
 import { Resend } from 'resend';
 const resend = new Resend ('re_9dz9Fsnr_6nKWMn9U4mX7khQ99bKdJ7t6')
 import { Kafka } from 'kafkajs';
@@ -34,6 +34,7 @@ let waitforCreateReqId :number;
 let waitforCloseReqId : number;
 let waitforBalanceId : number;
 let balance : number
+let waitforCloseData : any 
 const consumer = kafka.consumer({groupId : 'group-3'}); 
 
 async function connectCkafka() {
@@ -53,6 +54,8 @@ async function connectCkafka() {
         }
         if(data.state == 'closed'){ 
             waitforCloseReqId = data.reqId
+            waitforCloseData = data
+
         }
         if(data.state == 'balance') { 
             waitforBalanceId = data.id
@@ -225,6 +228,25 @@ app.post('/api/v1/trade/close' , UseMiddleWare, async (req , res)=> {
     const payload = req.body;
     let orderId = payload.orderId; 
     let reqId = Math.trunc(Date.now() + Math.random())
+    let userId : any
+    const token = req.headers.authorization
+    if (token) {
+            const email : any= jwt.decode(token) 
+            if(email) { 
+                console.log(email)
+                const user = await prisma.user.findFirst({ 
+                    where : { 
+                        email : email
+                    }
+                })
+                if(user){ 
+                    userId = user.id
+                    console.log('userId  : ' + userId)
+                }
+                
+            }
+     }
+
     try{ 
         await producer.send({
             topic: "Q1",
@@ -252,8 +274,22 @@ app.post('/api/v1/trade/close' , UseMiddleWare, async (req , res)=> {
             }
             poll()
         })
-        promise.then((data)=> {
-            res.json("details" + JSON.stringify(data))
+        // console.log( " data :: " + JSON.stringify(waitforCloseData))
+        
+        promise.then((dataa)=> {
+
+            let data = waitforCloseData
+            const assetId = 'da4788ac-ff5e-4eb9-83eb-504f780d32c7'
+            let pnl = 50 ; 
+            console.log( "data.Oprice " + data.openPrice +" dataClose " + data.closedPrice  + " data Leverage " + data.leverage , + " pnl " + pnl  + " assett Id " + assetId + " userId "  + assetId  )
+
+            if(pnl && userId && assetId){ 
+                 updateClosedTrades(Number(data.openPrice) , Number(data.closedPrice) , Number(data.leverage) , pnl , assetId  , false, userId)
+            }
+            
+        
+            res.json("details" + JSON.stringify(dataa))
+
         }).catch((err)=>{ 
             res.status(403).json("failed" + err)
         })
@@ -340,6 +376,33 @@ app.get('/api/v1/supportedAssets' , async (req , res)=> {
 
 
 
+// async function addCurrencies() { 
+//     await prisma.asset.create({
+//         data : { 
+//             symbol : 'SOL' , 
+//             imageUrl : 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTsIsJL3zRgUrkD3yE3lD7LK0wZWSiRyY1GVg&s' , 
+//             name : 'Solana' , 
+//             decimals : 7
+//         }
+//     })
+// }
+// addCurrencies()
 
 
+async function  updateClosedTrades(openPrice : number , closedPrice : number , leverage : number , pnl : number , assetId : string , liquidated : boolean , userId : string )  {
+    const date = new Date()
+    await prisma.existingTrades.create({ 
+                //@ts-ignore
+                data : { 
+                    openPrice : openPrice , 
+                    closePrice  : closedPrice , 
+                    leverage :leverage , 
+                    pnl : pnl , 
+                    assetId : assetId , 
+                    liquidated : false , 
+                    userId : userId , 
+                    CreatedAt : date
+                }
+            })
+}
 app.listen(3000)
