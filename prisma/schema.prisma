@@ -15,8 +15,7 @@ datasource db {
 }
 
 model user { 
-  SNo Int @id @default(autoincrement())
-  id String @unique
+  id String @id @default(ulid())
   email String @unique
   lastLoggedIn DateTime?
   existingTrades existingTrades[]
@@ -24,8 +23,7 @@ model user {
 
 }
 model existingTrades { 
-  SNo Int @id @default(autoincrement())
-  id String
+  id String @id @default(uuid())
   openPrice Float
   closePrice Float
   leverage Float
@@ -39,8 +37,7 @@ model existingTrades {
 }
 
 model asset { 
-  SNo Int @id @default(autoincrement())
-  id String @unique
+  id String @id @default(uuid())
   symbol String
   imageUrl String
   name String
