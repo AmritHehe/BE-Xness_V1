@@ -8,10 +8,8 @@ const resend = new Resend ('re_9dz9Fsnr_6nKWMn9U4mX7khQ99bKdJ7t6')
 import { Kafka } from 'kafkajs';
 import { PrismaClient } from '../src/generated/prisma/index.js';
 import { JWT_PASSWORD } from './config.js';
-import Cookies from 'js-cookie';
 import { UseMiddleWare } from './useMiddleWare.js';
 app.use(express.json()) 
-const myHeaders = new Headers(); // Currently empty
 
 
 const prisma = new PrismaClient()
@@ -30,10 +28,12 @@ async function  ConnectPkafka() {
     });
 }
 ConnectPkafka(); 
-let waitforCreateReqId :number;
+let waitforuserReqId : number
+ let waitforCreateReqId :number;
 let waitforCloseReqId : number;
 let waitforBalanceId : number;
 let balance : number
+let orderId : number
 let waitforCloseData : any 
 const consumer = kafka.consumer({groupId : 'group-3'}); 
 
@@ -49,8 +49,12 @@ async function connectCkafka() {
         //@ts-ignore
         const data = JSON.parse(message?.value?.toString())
         console.log("data" + JSON.stringify(data))
+        if(data.type == 'user'){ 
+            waitforuserReqId = data.reqId
+        }
         if(data.state == 'open'){
             waitforCreateReqId = data.reqId
+            orderId = data.orderId
         }
         if(data.state == 'closed'){ 
             waitforCloseReqId = data.reqId
@@ -106,16 +110,56 @@ app.post('/api/v1/signup' ,async (req , res) => {
         });
         console.log("fuck it worked , info " + info )
 
-        myHeaders.set('authorisation' , token)
-        Cookies.set('token', token, { expires: 7, secure: true });
+        const reqId = Math.trunc(Date.now() + Math.random() * 10 )
         try{ 
-            const Pres = await prisma.user.create({ 
+            await prisma.user.create({ 
                 data : { 
                     email : email    
                 }
             })
-            res.status(200).json("please check ur email" + Pres)
+            console.log(" here 1  " )
+            await producer.send({
+                topic: "Q1",
+                messages: [{
+                    value: JSON.stringify({ type : 'user' ,  user : {
+                        email : email , 
+                        reqId : reqId
+                    }
+                        
+                    })
+                }]
+            });
+            console.log(" here 2  " )
+            console.log('req Id' + reqId)
+            const myPromise = new Promise ((resolve , reject) => { 
+                const start = Date.now()
+                function poll ( ){ 
+                    if(waitforuserReqId == reqId){ 
+                        let tt = Date.now() - start
+                        resolve("successfull , time taken :  "  + tt )
+                    }
+                    else if(Date.now()-start > 3000){
+                        reject("failed hogis ")
+                    }
+                    else { 
+                        setTimeout(poll , 5)
+                    }
+                }
+                poll() ;   
+            })
+            console.log(" here 1  " )
+            myPromise.then((data)=> { 
+                console.log("inside then")
+                // res.json("details :  " + JSON.stringify(data))
+            }).catch((err)=> { 
+                // console.log("inside catch ")
+                res.json("didnt worked bhai" + err)
+                
+
+            })
+            res.status(200).json("please check ur email" )
         }
+
         catch(err) { 
             res.status(403).json("something went wrong" + err)
         }
@@ -172,10 +216,10 @@ app.post('/api/v1/trade/create' , UseMiddleWare , async (req , res)=> {
     const token = req.headers.authorization;
     let payload = req.body; 
     
-    if(token || 1==1){
-        // const user = jwt.verify(token,JWT_PASSWORD)
-        let user
-        if(user || 1==1){ 
+    if(token){
+        const email = jwt.decode(token)
+        
+        if(email){ 
             //post a request to engine be
             //brpop
             const reqId = Date.now()+Math.random()
@@ -189,7 +233,9 @@ app.post('/api/v1/trade/create' , UseMiddleWare , async (req , res)=> {
                             type : payload.type , 
                             margin : payload.margin , 
                             leverage : payload.leverage , 
-                            slippage : payload.slippage}
+                            slippage : payload.slippage , 
+                            email : email
+                          }
                             
                         })
                     }]
@@ -211,7 +257,7 @@ app.post('/api/v1/trade/create' , UseMiddleWare , async (req , res)=> {
                     poll() ;   
                 })
                 myPromise.then((data)=> { 
-                    res.json("details :  " + JSON.stringify(data))
+                    res.json("details :  " + JSON.stringify(data) + "order Id" + orderId) 
                 }).catch((err)=> { 
                     res.json("didnt worked bhai" + err)
                 })
@@ -242,72 +288,79 @@ app.post('/api/v1/trade/close' , UseMiddleWare, async (req , res)=> {
                 if(user){ 
                     userId = user.id
                     console.log('userId  : ' + userId)
+                    try{ 
+                        await producer.send({
+                            topic: "Q1",
+                            messages: [{
+                                value: JSON.stringify({ type : 'closeOrder' ,  trade : {
+                                        orderId : orderId,
+                                        reqId : reqId , 
+                                        email : email
+                                    }   
+                                })
+                            }]
+                        });
+                        const promise = new Promise((resolve, reject) => {
+                            const start = Date.now()
+                            function poll() { 
+                                if (waitforCloseReqId == reqId){ 
+                                    const tt = Date.now() - start;
+                                    resolve("yaay it worked" + tt) 
+                                }
+                                else if((Date.now()-start)>5000){ 
+                                    reject("failed hogis")
+                                }
+                                else{ 
+                                    setTimeout(poll , 10)
+                                }
+                            }
+                            poll()
+                        })
+                        // console.log( " data :: " + JSON.stringify(waitforCloseData))
+                        
+                        promise.then((dataa)=> {
+
+                            let data = waitforCloseData
+                            const assetId = 'da4788ac-ff5e-4eb9-83eb-504f780d32c7'
+                            let pnl = 50 ; 
+                            console.log( "data.Oprice " + data.openPrice +" dataClose " + data.closedPrice  + " data Leverage " + data.leverage , + " pnl " + data.profit  + " assett Id " + assetId + " userId "  + assetId  )
+
+                            if(pnl && userId && assetId){ 
+                                    updateClosedTrades(Number(data.openPrice) , Number(data.closedPrice) , Number(data.leverage) , pnl , assetId  , false, userId)
+                            }
+                            
+                        
+                            res.json("details" + JSON.stringify(dataa))
+
+                        }).catch((err)=>{ 
+                            res.status(403).json("failed" + err)
+                        })
+                    
+                    }
+                    catch(err){ 
+                        res.json("something went wrong")
+                    }
+
                 }
-                
+
             }
      }
 
-    try{ 
-        await producer.send({
-            topic: "Q1",
-            messages: [{
-                value: JSON.stringify({ type : 'closeOrder' ,  trade : {
-                        orderId : orderId,
-                        reqId : reqId
-                    }   
-                })
-            }]
-        });
-        const promise = new Promise((resolve, reject) => {
-            const start = Date.now()
-            function poll() { 
-                if (waitforCloseReqId == reqId){ 
-                    const tt = Date.now() - start;
-                    resolve("yaay it worked" + tt) 
-                }
-                else if((Date.now()-start)>5000){ 
-                    reject("failed hogis")
-                }
-                else{ 
-                    setTimeout(poll , 10)
-                }
-            }
-            poll()
-        })
-        // console.log( " data :: " + JSON.stringify(waitforCloseData))
-        
-        promise.then((dataa)=> {
-
-            let data = waitforCloseData
-            const assetId = 'da4788ac-ff5e-4eb9-83eb-504f780d32c7'
-            let pnl = 50 ; 
-            console.log( "data.Oprice " + data.openPrice +" dataClose " + data.closedPrice  + " data Leverage " + data.leverage , + " pnl " + pnl  + " assett Id " + assetId + " userId "  + assetId  )
-
-            if(pnl && userId && assetId){ 
-                 updateClosedTrades(Number(data.openPrice) , Number(data.closedPrice) , Number(data.leverage) , pnl , assetId  , false, userId)
-            }
-            
-        
-            res.json("details" + JSON.stringify(dataa))
-
-        }).catch((err)=>{ 
-            res.status(403).json("failed" + err)
-        })
-        
-    }catch(err){ 
-        res.json("something went wrong")
-    }
 
     // axios.post('https://localhost:3000')
 })
 app.get('/api/v1/balance/usd' , UseMiddleWare , async (req , res)=> { 
     try { 
         const reqId = Math.trunc(Date.now() + Math.random() /6)
+        const token = req.headers.authorization ; 
+        if(token) { 
+        const email = jwt.decode(token)
         await producer.send({ 
             topic : 'Q1' , 
             messages : [{ 
                 value : JSON.stringify({
                     type : 'getBalance' , data : { 
+                        email : email , 
                         reqId : reqId
                     }
                 })
@@ -334,6 +387,8 @@ app.get('/api/v1/balance/usd' , UseMiddleWare , async (req , res)=> {
         }).catch((err)=> { 
             res.status(403).json("didnt worked bhai")
         })
+        }
+
     }
     catch(err) { 
 
